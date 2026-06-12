@@ -1,0 +1,85 @@
+name: Build Smart Chef APK from ZIP
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build Android APK from ZIP
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show files
+        run: |
+          echo "Root files:"
+          ls -la
+          echo "ZIP files found:"
+          find . -maxdepth 3 -type f -iname "*.zip" -print
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Unzip and locate Android project
+        run: |
+          set -e
+
+          ZIP_FILE=""
+          if [ -f "SmartChef_Android_GitHub_Actions_Ready.zip" ]; then
+            ZIP_FILE="SmartChef_Android_GitHub_Actions_Ready.zip"
+          else
+            ZIP_FILE=$(find . -maxdepth 3 -type f -iname "*SmartChef*.zip" | head -n 1 || true)
+          fi
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: SmartChef ZIP file not found."
+            echo "Upload SmartChef_Android_GitHub_Actions_Ready.zip to the repository root."
+            exit 1
+          fi
+
+          echo "Using ZIP: $ZIP_FILE"
+
+          rm -rf extracted_project
+          mkdir extracted_project
+          unzip -oq "$ZIP_FILE" -d extracted_project
+
+          echo "Searching for gradlew..."
+          PROJECT_DIR=$(find extracted_project -type f -name "gradlew" | head -n 1 | xargs dirname || true)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: gradlew was not found inside the ZIP."
+            echo "Extracted files:"
+            find extracted_project -maxdepth 5 -type f | head -n 100
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project found at: $PROJECT_DIR"
+
+          echo "Project files:"
+          ls -la "$PROJECT_DIR"
+
+      - name: Make Gradle executable
+        run: chmod +x "$PROJECT_DIR/gradlew"
+
+      - name: Build debug APK
+        run: |
+          cd "$PROJECT_DIR"
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartChef-V18-backend-cloud-vision-apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
